@@ -2,14 +2,30 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-
+import json, gspread
+from oauth2client.service_account import ServiceAccountCredentials
 st.set_page_config(page_title="디지털 탄소발자국 대시보드", layout="wide")
 
-@st.cache_data
+@st.cache_resource
+def gsheet_client():
+    scope = ["https://spreadsheets.google.com/feeds","https://www.googleapis.com/auth/drive"]
+    creds_json = st.secrets["GSHEETS_CREDENTIALS"]
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(creds_json), scope)
+    return gspread.authorize(creds)
+
+@st.cache_data(ttl=300)
 def load_data():
-    # GitHub repo 내 data/records.csv를 App에 배포할 때 포함
-    # 또는 raw URL 읽기(토큰/권한 필요 시 Secrets 사용)
-    df = pd.read_csv("data/records.csv", parse_dates=["date"])
+    # ✅ Google Sheets에서 직접 읽기
+    sh = gsheet_client().open_by_key(st.secrets["SHEET_ID"]).worksheet(st.secrets.get("SHEET_NAME", "Form Responses 1"))
+    rows = sh.get_all_records()  # 1행 헤더 기준
+    df = pd.DataFrame(rows)
+    # date 컬럼 정제(없어도 에러 안 나게)
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    elif "Timestamp" in df.columns:
+        df["date"] = pd.to_datetime(df["Timestamp"], errors="coerce")
+    else:
+        df["date"] = pd.NaT
     return df
 
 def compute_co2e(df):
